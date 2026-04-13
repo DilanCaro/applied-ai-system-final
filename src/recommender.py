@@ -145,8 +145,6 @@ def load_songs(csv_path: str) -> List[Dict]:
     Loads songs from a CSV file.
     Required by src/main.py
     """
-    # TODO: Implement CSV loading logic
-    print(f"Loading songs from {csv_path}...")
     rows: List[Dict] = []
     with open(csv_path, newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
@@ -159,7 +157,6 @@ def load_songs(csv_path: str) -> List[Dict]:
             row["danceability"] = float(row["danceability"])
             row["acousticness"] = float(row["acousticness"])
             rows.append(row)
-    print(f"Loaded songs: {len(rows)}")
     return rows
 
 

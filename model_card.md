@@ -1,14 +1,14 @@
-# 🎧 Model Card: Music Recommender Simulation
+# 🎧 Model Card: Applied AI Music Advisor
 
 ## 1. Model Name
 
-**VibeRank Classroom Recommender**
+**Applied AI Music Advisor**
 
 ---
 
 ## 2. Intended Use
 
-This system suggests **up to five songs** from a small CSV catalog for a **single user** at a time. It uses stated preferences only: favorite genre and mood, a target energy level between 0 and 1, and whether the user leans toward acoustic-sounding tracks. It is meant for **learning and demos**, not for a real product, streaming service, or any high-stakes decision.
+This system suggests **up to five songs** from a small CSV catalog for a **single user** at a time. The final version accepts a free-text request, retrieves local music-guidance documents, asks Gemini to infer a structured listener profile, and then ranks songs using transparent scoring rules. It is meant for **learning and demos**, not for a real product, streaming service, or any high-stakes decision.
 
 ---
 
@@ -16,50 +16,64 @@ This system suggests **up to five songs** from a small CSV catalog for a **singl
 
 ### Explain your scoring approach in simple language.  
 
-Each song is described by tags and numbers from the dataset (genre, mood, energy, acousticness, plus unused extras like tempo and valence for now). The user’s profile supplies the same kinds of clues.
+The system now has two layers:
 
+1. A **retrieval + Gemini inference layer** that converts a natural-language request into structured fields such as genre, mood, target energy, and acoustic preference.
+2. A **transparent ranking layer** that scores each song using those fields.
 
-The model adds points when the song’s **genre** matches the user’s favorite genre and when the **mood** matches. It rewards songs whose **energy** is close to the user’s target energy: the closer the values, the larger the bonus. Finally, if the user says they like acoustic music, songs with higher acousticness score a bit better; if they do not, songs with lower acousticness score better. After every song has a total score, the system **sorts** from highest to lowest and returns the top results. A short list of “reasons” is saved next to each score so a person can see why a track ranked where it did.
+The ranking model still adds points for genre match, mood match, energy similarity, and acoustic alignment. The important extension is that Gemini now chooses those ranking inputs using retrieved local guidance rather than a user filling out fields manually.
 
 ---
 
 ## 4. Data
 
-The catalog has **18** hand-authored tracks in `data/songs.csv`. Genres include pop, lofi, rock, jazz, ambient, synthwave, indie pop, metal, country, classical, reggae, hip hop, folk, and punk. Moods include happy, chill, intense, relaxed, focused, moody, and sad. The data reflect a **made-up** mix of artists and tags, not real listening logs, so it is easy to discuss but not representative of global music taste.
+The catalog has **18** hand-authored tracks in `data/songs.csv`. Genres include pop, lofi, rock, jazz, ambient, synthwave, indie pop, metal, country, classical, reggae, hip hop, folk, and punk. Moods include happy, chill, intense, relaxed, focused, moody, and sad.
+
+The RAG layer also uses a local document set in `docs/` with guidance on:
+
+- listening contexts
+- mood and energy interpretation
+- genre aliases
+- fallback and uncertainty rules
 
 ---
 
 ## 5. Strengths
 
-The design is **simple and inspectable**: you can read the weights and the reason strings and predict how a song will move if you change a preference. For profiles that line up cleanly with the tags—**rock / intense**, **lofi / chill**, **pop / happy**—the top songs usually match intuition. The same scoring core powers both the CLI and the unit-tested `Recommender` class, which reduces hidden bugs.
+The design is still **inspectable**: the ranking weights are explicit, retrieved sources are shown, Gemini output is constrained to JSON, and each run is logged. The same end-to-end advisor powers the CLI, Streamlit app, and evaluation harness, which makes it easier to spot mismatches between the demo and the tested path.
 
 ---
 
 ## 6. Limitations and Bias
 
-Exact **string** matching on genre hurts near-misses: **indie pop** does not count as **pop**, so a user who thinks of both as “pop” gets odd gaps. Rare moods (**sad**) leave few matches; the model then leans on **genre and energy**, which can feel like it **ignores** the mood the user named—a small “filter bubble” toward whatever genres dominate their other signals. The catalog is tiny, so **Gym Hero** and other intense pop tracks can stay high for several profiles simply because there are few alternatives at the same energy tier. If this were deployed for real users, **underrepresented** genres and non-English music would likely lose even when human listeners would enjoy them.
+The catalog is still tiny, so even grounded inference can only recommend from limited options. Gemini can also misread a prompt or return malformed JSON, which is why the system includes fallback parsing, warnings, and confidence scoring. Exact catalog labels still matter, even with alias guidance, so some subtle genre requests will collapse into the closest supported label.
 
 ---
 
 ## 7. Evaluation
 
-Testing used **four** CLI profiles: high-energy happy pop, chill acoustic-leaning lofi, intense rock, and a **conflicting** profile (high energy + **sad** mood, with almost no “sad” mood rows). I checked whether the top five matched the stated vibe and whether explanations mentioned the expected bonuses. **pytest** includes a small fixture catalog that checks the pop/happy/high-energy user gets the pop/happy track first and that `explain_recommendation` returns non-empty text.
+Testing now covers retrieval, Gemini JSON parsing, fallback behavior, and end-to-end recommendation flow. The evaluation harness runs prompts for study/focus, workout, chill acoustic listening, conflicting emotional requests, and vague unsupported requests.
 
-**One quantitative-style experiment:** raising `WEIGHT_ENERGY_SIMILARITY` from **1.5** to **3.0** in code (described in the README) increases how much **energy distance** moves the list when genre ties or when mood does not match—rankings shift toward very high- or very low-energy tracks without any new listening data.
+The main quantitative signals are:
 
-**Surprise:** After adding a **pop / sad** row (**Sad Phone Glow**), the conflicting profile finally surfaces a mood-appropriate top pick—but **Gym Hero** still trails close behind on genre and energy alone, which shows how extra catalog diversity changes outcomes without changing the formula.
+- retrieval hit rate
+- recommendation alignment rate
+- average confidence
+- count of low-confidence cases
+
+The most interesting behavior appears on conflicting prompts like **sad but energetic pop**, where the system can return a plausible match while still surfacing uncertainty.
 
 ---
 
 ## 8. Future Work
 
-- Add **partial genre** matching or aliases (map indie pop → pop).
-- Use **valence** or tempo bands when the user asks for “sad” or “party” vibes.
-- Add a **diversity** rule so the top five cannot be five tracks from the same artist or genre.
-- Log **implicit feedback** (skips, replays) in a toy simulation to show collaborative effects.
+- Add richer retrieval documents or user-authored playlists as a second knowledge source.
+- Use `valence` and `tempo_bpm` more directly in ranking.
+- Add diversity constraints so one artist cannot dominate the top five.
+- Add human evaluation rubrics alongside automated checks.
 
 ---
 
 ## 9. Personal Reflection
 
-Building this made the phrase “it’s just math” concrete: the same dataset felt “smart” or “dumb” depending on weights and tag coverage. Using AI coding tools sped up boilerplate and edge-case brainstorming, but I still had to **check** whether mood strings in the CSV matched the profiles and whether tests encoded fair expectations. The biggest learning moment was seeing a **conflicting profile** still get plausible rankings because genre and energy outweighed a rare mood—real recommenders have the same tension when signals disagree. If I extended the project, I would prioritize fairness and diversity metrics alongside average score so “reasonable” does not always mean “mainstream repeat.”
+Building this version showed me that retrieval and prompting are only useful when they feed a system that can still be audited. Gemini made the input experience much more natural, but the project only became trustworthy after I added structured outputs, fallback handling, and explicit reliability signals. If I kept extending it, I would prioritize larger datasets, more human evaluation, and stronger safeguards against overconfident recommendations.

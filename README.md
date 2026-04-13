@@ -1,91 +1,185 @@
-# 🎵 Music Recommender Simulation
+# Applied AI Music Advisor
 
-## Project Summary
+## Original Project
 
-This repo simulates a **content-based** music recommender: each song in a CSV is scored against a small “taste profile” (favorite genre and mood, target energy, and whether the listener prefers acoustic textures). The highest-scoring tracks are ranked as the top recommendations. Explanations list which rules fired (genre match, mood match, energy similarity, acoustic preference), so the pipeline is easy to audit—unlike opaque production systems that blend collaborative and deep models.
+This project extends my earlier **Music Recommender Simulation** from Module 3. The original version ranked songs from a CSV using explicit preferences like genre, mood, energy, and acousticness, then returned transparent rule-based explanations for the top matches.
 
-The CLI (`python3 -m src.main`) loads the catalog, then runs several example profiles so you can compare outputs side by side.
+For the final project, I turned that prototype into a fuller applied AI system: users can now enter a natural-language request, the system retrieves local music-guidance documents, Gemini infers a structured listener profile from those sources, and the ranking engine returns grounded recommendations with confidence and logging.
 
----
+## Title And Summary
 
-## How The System Works
+Applied AI Music Advisor is a **Gemini + RAG music recommender** built with Python. It combines:
 
-**Features per song (from `data/songs.csv`):** `id`, `title`, `artist`, `genre`, `mood`, `energy` (0–1), `tempo_bpm`, `valence`, `danceability`, and `acousticness`. Only **genre, mood, energy, acousticness** feed the score today; the other columns are available for future rules.
+- local retrieval over a small music knowledge base
+- Gemini-based intent inference using the Google AI Studio API key
+- a transparent ranking engine over a hand-authored song catalog
+- confidence scoring, warnings, and JSONL logs for reliability review
 
-**User profile:** `favorite_genre`, `favorite_mood`, `target_energy`, and `likes_acoustic`. The functions also accept shorthand keys (`genre`, `mood`, `energy`) for quick experiments.
+The goal is not to imitate Spotify-scale personalization. It is to demonstrate a trustworthy, explainable AI pipeline where retrieval actually changes recommendation behavior and where failures are visible instead of hidden.
 
-**Algorithm recipe (ranking rule):**
+## Architecture Overview
 
-1. For **every** song, run `score_song` (the scoring rule for one track).
-2. Sum weighted parts: **+2.0** if genre matches, **+1.0** if mood matches.
-3. Add **energy similarity**: \(1 - |\"\"song_energy - target_energy|\"\) scaled by **1.5**.
-4. Add **acoustic alignment**: if the user likes acoustic music, reward high `acousticness`; otherwise reward lower `acousticness` (weight **0.5**).
-5. Sort all songs by total score (highest first), break ties by title, return the top **k**.
+The architecture source file is in [assets/system_architecture.md](assets/system_architecture.md).
 
-The object-oriented `Recommender` class uses the **same** `score_song` logic as the functional `recommend_songs` path, so tests and CLI stay in sync.
+High-level flow:
 
----
+1. The user enters a free-text request.
+2. The retriever searches local guidance documents in `docs/`.
+3. Retrieved snippets are sent to Gemini along with allowed catalog labels.
+4. Gemini returns a structured listener profile in JSON.
+5. The ranking engine scores songs with those inferred preferences.
+6. The app reports recommendations, retrieved sources, confidence, and warnings.
+7. Each run is logged to `logs/music_advisor_runs.jsonl`.
 
-## Getting Started
+## Setup Instructions
 
-### Setup
-
-1. Create a virtual environment (optional but recommended):
-
-   ```bash
-   python -m venv .venv
-   source .venv/bin/activate      # Mac or Linux
-   .venv\Scripts\activate         # Windows
-
-2. Install dependencies
-
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-3. Run the app:
+1. Create and activate a virtual environment.
 
 ```bash
-python -m src.main
+python3 -m venv .venv
+source .venv/bin/activate
 ```
 
-### Running Tests
-
-Run the starter tests with:
+2. Install dependencies.
 
 ```bash
-pytest
+pip install -r requirements.txt
 ```
 
-You can add more tests in `tests/test_recommender.py`.
+Python 3.10+ is recommended for the Google Gemini dependencies.
 
----
+3. Set your Google AI Studio API key.
 
-## Experiments You Tried
+```bash
+export GOOGLE_API_KEY="your_key_here"
+```
 
-- **Weight shift (energy vs genre):** In `src/recommender.py`, baseline weights are `WEIGHT_GENRE = 2.0` and `WEIGHT_ENERGY_SIMILARITY = 1.5`. Temporarily setting `WEIGHT_ENERGY_SIMILARITY` to **3.0** (and re-running `python3 -m src.main`) makes energy alignment matter more: high-energy tracks move up when genre and mood matches are tied or missing, which can **override** a weaker genre signal for ambiguous profiles.
-- **Mood removed (mental / code experiment):** Commenting out the mood-match block in `score_song` would collapse “happy” vs “sad” pop tracks to the same genre tier, so **Gym Hero** and **Sunrise City** would separate mainly on energy and acoustic lean—illustrating how dropping a feature hides emotional nuance.
+You can also place the key in a local `.env` file:
 
----
+```bash
+GOOGLE_API_KEY=your_key_here
+```
 
-## Limitations and Risks
+4. Run the CLI demo.
 
-- Tiny, hand-made catalog; genres like `indie pop` do not exactly match `pop`, so some good fits get zero genre points.
-- No collaborative filtering (no “users like you”), no audio or lyrics, no diversity penalty—so one artist or vibe can dominate the top k.
-- Edge moods (e.g. `sad`) are rare; the model can fall back to **genre + energy**, which looks “accurate” but ignores sadness the user asked for.
+```bash
+python3 -m src.main
+```
 
-See [model_card.md](model_card.md) for bias and evaluation detail.
+5. Or run the Streamlit app.
 
----
+```bash
+python3 -m streamlit run streamlit_app.py
+```
+
+6. Run the tests.
+
+```bash
+python3 -m pytest -q
+```
+
+## Sample Interactions
+
+### Example 1
+
+Input:
+
+```text
+I need calm background music for studying and deep focus.
+```
+
+Expected behavior:
+
+- retrieval should surface `contexts.md`
+- Gemini should infer lower energy and a focus-oriented mood
+- top recommendations should skew toward `lofi` or other low-energy, concentration-friendly songs
+
+### Example 2
+
+Input:
+
+```text
+Give me something intense and high energy for a workout.
+```
+
+Expected behavior:
+
+- retrieval should surface workout guidance
+- Gemini should infer high energy and likely `intense`
+- top recommendations should favor tracks like rock, metal, or intense pop entries
+
+### Example 3
+
+Input:
+
+```text
+Recommend sad but energetic pop for a dramatic run.
+```
+
+Expected behavior:
+
+- the system should preserve the conflict instead of flattening it
+- confidence may drop if the catalog has limited exact matches
+- warnings should mention any mismatch between the request and available songs
+
+## Design Decisions
+
+- I kept the original rule-based ranking engine because it is inspectable and easy to test.
+- I added RAG as the new AI feature so the system can interpret free-text requests using retrieved local guidance instead of hard-coded form fields alone.
+- Gemini is used for structured inference rather than unconstrained generation, which makes the pipeline easier to validate and log.
+- I kept both a CLI and Streamlit interface so the same core logic supports reproducible testing and a portfolio-ready demo.
+- I added a heuristic fallback path so API failures are observable and recoverable rather than crashing the whole system.
+
+## Reliability And Testing
+
+This project includes several reliability signals:
+
+- automated tests in `tests/test_recommender.py`
+- JSON parsing validation for Gemini output
+- retrieval hit checks for benchmark prompts
+- pipeline confidence scoring based on retrieval strength, profile completeness, top-result alignment, and fallback use
+- warning messages when retrieval is weak or Gemini output fails
+- JSONL logging for every run
+
+The evaluation harness in `src/evaluation.py` runs benchmark prompts and prints:
+
+- retrieval hit rate
+- alignment rate
+- average confidence
+- number of low-confidence cases
+
+Testing summary template after running locally:
+
+```text
+X/X tests passed. Retrieval hit rate was Y. Average confidence was Z. Low-confidence cases mostly occurred when prompts conflicted with the tiny catalog or Gemini fallback was triggered.
+```
 
 ## Reflection
 
-Recommenders are mostly **transparent ranking**: features plus weights produce a score, and small weight changes swing who wins. Real apps add feedback loops (skips, repeats) that can amplify mainstream genres—similar to how our genre gate rewards exact string matches.
+This project taught me that “AI integration” is only meaningful when the model changes system behavior. The most useful design choice here was forcing Gemini to return structured ranking inputs instead of letting it generate vague recommendation prose. The biggest challenge was reliability: a small catalog makes it easy for the system to sound confident when it should actually admit a partial match.
 
-Pairwise profile comparisons and “what changed, why” notes live in [reflection.md](reflection.md). The full model documentation is in [**Model Card**](model_card.md).
+Working with AI during development was helpful for brainstorming failure cases and scaffolding code, but I still had to verify grounding, JSON parsing, and whether retrieval actually affected the rankings. One flawed AI-style shortcut would have been adding a standalone chatbot explanation without wiring it into the ranking logic; I avoided that by making retrieved context and Gemini inference feed the scorer directly.
 
-### Terminal screenshots (course submission)
+## Ethics And Limitations
 
+- The catalog is tiny and hand-authored, so it does not represent real listener diversity.
+- Genre and mood labels are simplified and may flatten nuanced music preferences.
+- The system could be misused by overstating its confidence; this is why it exposes warnings, confidence, and retrieved evidence.
+- Bias can appear through catalog coverage: if few songs represent a mood or genre, the system may over-recommend the closest mainstream alternative.
+
+## Portfolio And Presentation
+
+- GitHub repo: add your final public repository link here
+- Loom walkthrough: add your final Loom link here
+- Portfolio reflection: this project shows that I can turn a small prototype into an end-to-end AI system with retrieval, model integration, testing, and transparent reliability signals
+
+## Supporting Files
+
+- [model_card.md](model_card.md)
+- [reflection.md](reflection.md)
+- [assets/system_architecture.md](assets/system_architecture.md)
+
+## Screenshots
 
 ![Lo-fi](img/lofi.png)
 

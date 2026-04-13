@@ -1,33 +1,23 @@
-# Profile comparisons
+# Reflection Notes
 
-Plain-language notes on how changing the taste profile changes the top recommendations, and why that matches the scoring rules.
+## What this project taught me
 
-## High-energy happy pop vs chill lofi (acoustic)
+The biggest lesson from this final version was that a polished AI feature needs both intelligence and evidence. A natural-language music prompt feels much more useful than a fixed preference form, but it only became trustworthy once I required Gemini to use retrieved local guidance and return structured JSON that the ranking engine could verify.
 
-**What changed:** The happy-pop run favors **Sunrise City** first (pop + happy + high energy, lower acousticness when the user dislikes acoustic). The chill-lofi run favors **Library Rain** and **Midnight Coding** (lofi + chill + moderate energy + acoustic taste).
+## Reliability surprises
 
-**Why it makes sense:** Genre and mood each add fixed points, so the catalog separates “party pop” from “study lofi” immediately. Energy similarity then fine-tunes inside that lane, and the acoustic flag pushes lofi listeners toward tracks with higher `acousticness`.
+The most surprising behavior showed up on conflicting prompts like `sad but energetic pop`. Gemini could map the request into a reasonable structured profile, but the tiny catalog still limited how exact the final recommendation could be. That made confidence scoring and warnings much more important than I expected.
 
-## High-energy happy pop vs deep intense rock
+## Limitations and bias
 
-**What changed:** Pop users see **Sunrise City** and **Gym Hero** near the top; rock users see **Storm Runner** first, with **Gym Hero** appearing later because it shares **intense** mood and high energy but not the rock genre tag.
+- The catalog is tiny and hand-curated, so some genres and emotional combinations are underrepresented.
+- The system can over-prefer whatever labels happen to exist in the data instead of what a real user might mean.
+- Retrieval guidance helps normalize prompts, but it cannot create catalog coverage that does not exist.
 
-**Why it makes sense:** The **+2** genre gate is strong. Intense, high-energy pop can still rank well for rock fans as a “mood and energy” compromise, but it should not beat a true genre+mood rock match when that row exists.
+## Misuse and mitigation
 
-## Chill lofi vs deep intense rock
+This system could be misused if someone treated its outputs as highly personalized or authoritative. I reduce that risk by showing retrieved sources, logging each run, surfacing warnings, and lowering confidence when requests are vague, conflicting, or unsupported.
 
-**What changed:** Lofi profiles surface low-energy, chill, acoustic-leaning tracks. Rock profiles jump to **Storm Runner** and other high-energy, intense material; lofi rows fall to the bottom.
+## Collaboration with AI
 
-**Why it makes sense:** Both genre and mood differ, so the two profiles almost never fight for the same winner. Energy similarity reinforces that split (targets 0.4 vs 0.95).
-
-## Edge case: high energy + “sad” mood (pop) vs high-energy happy pop
-
-**What changed:** With **sad** mood and a **pop / sad** track in the catalog, **Sad Phone Glow** can take first place (genre + mood + reasonable energy fit). **Gym Hero** still sits near the top on **genre + energy** alone because it is a very close energy match without the sad tag. With **happy** mood, **Sunrise City** typically wins thanks to the extra mood match over **Gym Hero**.
-
-**Why it makes sense:** The model only uses exact mood **string** equality. When no row shares that mood, genre and energy dominate and a “sad” request looks ignored—adding diverse rows is as important as tuning weights.
-
-## Optional weight experiment (energy doubled)
-
-**What changed:** If `WEIGHT_ENERGY_SIMILARITY` is increased, songs very close to the user’s target energy gain more ground. Profiles with **no** mood match see bigger jumps between close energy tiers.
-
-**Why it makes sense:** Ranking is always “sum of parts.” Blowing up one part makes that dimension act like a louder voice in the meeting—similar to real products tuning engagement signals over explicit taste statements.
+One helpful AI contribution during development was suggesting how to structure the pipeline as retrieval -> Gemini inference -> ranking -> reliability signals, which made the system much more coherent than a loose chatbot add-on. One flawed suggestion I had to avoid was letting the model produce free-form recommendation text without constraining it to catalog labels; that would have sounded smart while disconnecting the output from the actual scoring logic.
